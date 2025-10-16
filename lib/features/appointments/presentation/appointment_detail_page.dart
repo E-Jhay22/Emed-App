@@ -218,13 +218,13 @@ class _AppointmentDetailPageState extends State<AppointmentDetailPage> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
-                  : (isScheduled
-                        ? const SizedBox.shrink()
-                        : ElevatedButton.icon(
-                            onPressed: _schedule,
-                            icon: const Icon(Icons.schedule),
-                            label: const Text('Schedule'),
-                          )),
+                  : (_shouldShowSchedule(role, isScheduled)
+                      ? ElevatedButton.icon(
+                          onPressed: _schedule,
+                          icon: const Icon(Icons.schedule),
+                          label: const Text('Schedule'),
+                        )
+                      : const SizedBox.shrink()),
             ),
           ],
         ),
@@ -274,4 +274,9 @@ class _StatusPill extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _shouldShowSchedule(String role, bool isScheduled) {
+  if (isScheduled) return false;
+  return role == 'staff' || role == 'admin';
 }

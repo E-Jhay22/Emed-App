@@ -6,6 +6,7 @@ import 'appointment_request_page.dart';
 import '../../../../services/supabase_service.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/utils/nav.dart';
+import '../../../../core/widgets/role_scope.dart';
 
 class AppointmentListPage extends StatefulWidget {
   const AppointmentListPage({super.key});
@@ -17,21 +18,40 @@ class AppointmentListPage extends StatefulWidget {
 class _AppointmentListPageState extends State<AppointmentListPage> {
   late final String? _userId;
   late Stream<List<Appointment>> _stream;
+  String _role = 'user';
 
   @override
   void initState() {
     super.initState();
     _userId = SupabaseService.instance.currentUser?.id;
-    _stream = AppointmentService.instance.streamAppointmentsForUser(
-      _userId ?? '',
-    );
+    // default stream for users; staff/admin updated in didChangeDependencies
+    _stream = AppointmentService.instance.streamAppointmentsForUser(_userId ?? '');
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _role = RoleScope.of(context);
+    if (_role == 'staff' || _role == 'admin') {
+      // Staff/Admin should see all requested appointments to schedule
+      _stream = AppointmentService.instance.streamAllAppointments(
+        statusFilter: 'requested',
+      );
+      setState(() {});
+    }
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _stream = AppointmentService.instance.streamAppointmentsForUser(
-        _userId ?? '',
-      );
+      if (_role == 'staff' || _role == 'admin') {
+        _stream = AppointmentService.instance.streamAllAppointments(
+          statusFilter: 'requested',
+        );
+      } else {
+        _stream = AppointmentService.instance.streamAppointmentsForUser(
+          _userId ?? '',
+        );
+      }
     });
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
@@ -82,6 +102,11 @@ class _AppointmentListPageState extends State<AppointmentListPage> {
                 final scheduled = isScheduled
                     ? a.scheduledAt!.toLocal().toString().substring(0, 16)
                     : '-';
+                final title = (_role == 'staff' || _role == 'admin')
+                    ? (a.requestedByName?.isNotEmpty == true
+                        ? 'Appointment • ${a.requestedByName}'
+                        : 'Appointment')
+                    : 'Appointment';
                 return InkWell(
                   borderRadius: BorderRadius.circular(12),
                   onTap: () => Nav.pushWithRole(
@@ -120,7 +145,7 @@ class _AppointmentListPageState extends State<AppointmentListPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Appointment',
+                                title,
                                 style: Theme.of(context).textTheme.titleMedium,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

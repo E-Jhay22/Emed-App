@@ -13,6 +13,19 @@ class AppointmentService {
 
   final _client = SupabaseService.instance.client;
 
+  List<Appointment> _mapRowsToAppointments(Iterable<Map<String, dynamic>> rows) {
+    return rows.map((e) {
+      final map = Map<String, dynamic>.from(e);
+      if (map['user'] is Map && (map['user'] as Map)['name'] != null) {
+        map['requested_by_name'] = (map['user'] as Map)['name'];
+      }
+      if (map['staff'] is Map && (map['staff'] as Map)['name'] != null) {
+        map['scheduled_by_name'] = (map['staff'] as Map)['name'];
+      }
+      return Appointment.fromJson(map);
+    }).toList();
+  }
+
   List<Map<String, dynamic>> _rowsFrom(dynamic res) {
     if (res is List) {
       return res.cast<Map<String, dynamic>>();
@@ -38,17 +51,9 @@ class AppointmentService {
           .select(
             '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
           )
-          .eq('user_id', userId);
-      final items = _rowsFrom(res).map((e) {
-        final map = Map<String, dynamic>.from(e);
-        if (map['user'] is Map && (map['user'] as Map)['name'] != null) {
-          map['requested_by_name'] = (map['user'] as Map)['name'];
-        }
-        if (map['staff'] is Map && (map['staff'] as Map)['name'] != null) {
-          map['scheduled_by_name'] = (map['staff'] as Map)['name'];
-        }
-        return Appointment.fromJson(map);
-      }).toList();
+          .eq('user_id', userId)
+          .order('requested_at', ascending: false);
+      final items = _mapRowsToAppointments(_rowsFrom(res));
       controller.add(items);
 
       _client.channel('public:appointments').on(
@@ -60,17 +65,9 @@ class AppointmentService {
               .select(
                 '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
               )
-              .eq('user_id', userId);
-          final items2 = _rowsFrom(res2).map((e) {
-            final map = Map<String, dynamic>.from(e);
-            if (map['user'] is Map && (map['user'] as Map)['name'] != null) {
-              map['requested_by_name'] = (map['user'] as Map)['name'];
-            }
-            if (map['staff'] is Map && (map['staff'] as Map)['name'] != null) {
-              map['scheduled_by_name'] = (map['staff'] as Map)['name'];
-            }
-            return Appointment.fromJson(map);
-          }).toList();
+              .eq('user_id', userId)
+              .order('requested_at', ascending: false);
+          final items2 = _mapRowsToAppointments(_rowsFrom(res2));
           controller.add(items2);
         },
       ).subscribe();
@@ -83,18 +80,70 @@ class AppointmentService {
             .select(
               '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
             )
-            .eq('user_id', userId);
-        final list = _rowsFrom(res).map((e) {
-          final map = Map<String, dynamic>.from(e);
-          if (map['user'] is Map && (map['user'] as Map)['name'] != null) {
-            map['requested_by_name'] = (map['user'] as Map)['name'];
-          }
-          if (map['staff'] is Map && (map['staff'] as Map)['name'] != null) {
-            map['scheduled_by_name'] = (map['staff'] as Map)['name'];
-          }
-          return Appointment.fromJson(map);
-        }).toList();
+            .eq('user_id', userId)
+            .order('requested_at', ascending: false);
+        final list = _mapRowsToAppointments(_rowsFrom(res));
         yield list;
+        await Future.delayed(pollInterval);
+      }
+    }
+  }
+
+  /// Stream appointments visible to staff/admin (optionally filter by status)
+  Stream<List<Appointment>> streamAllAppointments({
+    String? statusFilter,
+    Duration pollInterval = const Duration(seconds: 5),
+  }) async* {
+    try {
+      final controller = StreamController<List<Appointment>>();
+      dynamic query = _client
+          .from('appointments')
+          .select(
+            '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
+          )
+          .order('requested_at', ascending: false);
+      if (statusFilter != null && statusFilter.isNotEmpty) {
+        query = query.eq('status', statusFilter);
+      }
+      final res = await query;
+      controller.add(_mapRowsToAppointments(_rowsFrom(res)));
+
+      _client.channel('public:appointments').on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'appointments'),
+        (payload, [ref]) async {
+          dynamic q2 = _client
+              .from('appointments')
+              .select(
+                '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
+              )
+              .order('requested_at', ascending: false);
+          if (statusFilter != null && statusFilter.isNotEmpty) {
+            q2 = q2.eq('status', statusFilter);
+          }
+          final res2 = await q2;
+          controller.add(_mapRowsToAppointments(_rowsFrom(res2)));
+        },
+      ).subscribe();
+
+      yield* controller.stream;
+    } catch (e) {
+      while (true) {
+        try {
+          dynamic query = _client
+              .from('appointments')
+              .select(
+                '*, user:profiles!appointments_user_id_fkey(full_name), staff:profiles!appointments_staff_id_fkey(full_name)',
+              )
+              .order('requested_at', ascending: false);
+          if (statusFilter != null && statusFilter.isNotEmpty) {
+            query = query.eq('status', statusFilter);
+          }
+          final res = await query;
+          yield _mapRowsToAppointments(_rowsFrom(res));
+        } catch (_) {
+          yield const <Appointment>[];
+        }
         await Future.delayed(pollInterval);
       }
     }
