@@ -11,6 +11,11 @@ class Appointment {
   // Display names hydrated from profiles
   final String? requestedByName;
   final String? scheduledByName;
+  // Cancellation fields
+  final DateTime? cancelledAt;
+  final String? cancelledBy; // id
+  final String? cancelRequestReason;
+  final DateTime? cancelRequestAt;
 
   Appointment({
     required this.id,
@@ -22,6 +27,10 @@ class Appointment {
     this.notes,
     this.requestedByName,
     this.scheduledByName,
+    this.cancelledAt,
+    this.cancelledBy,
+    this.cancelRequestReason,
+    this.cancelRequestAt,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) => Appointment(
@@ -45,6 +54,14 @@ class Appointment {
         ((json['staff'] is Map && (json['staff'] as Map)['full_name'] != null)
             ? (json['staff'] as Map)['full_name'] as String
             : null),
+    cancelledAt: json['cancelled_at'] != null
+        ? DateTime.tryParse(json['cancelled_at'].toString())
+        : null,
+    cancelledBy: json['cancelled_by'] as String?,
+    cancelRequestReason: json['cancel_request_reason'] as String?,
+    cancelRequestAt: json['cancel_request_at'] != null
+        ? DateTime.tryParse(json['cancel_request_at'].toString())
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -55,6 +72,10 @@ class Appointment {
     'scheduled_at': scheduledAt?.toIso8601String(),
     'status': status,
     'notes': notes,
+    'cancelled_at': cancelledAt?.toIso8601String(),
+    'cancelled_by': cancelledBy,
+    'cancel_request_reason': cancelRequestReason,
+    'cancel_request_at': cancelRequestAt?.toIso8601String(),
     // Names are view-only; not serialized for writes
   };
 }

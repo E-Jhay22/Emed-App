@@ -79,6 +79,12 @@ create table appointments (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- Cancellation support (migration-safe)
+alter table appointments add column if not exists cancelled_at timestamp with time zone;
+alter table appointments add column if not exists cancelled_by uuid references profiles(id);
+alter table appointments add column if not exists cancel_request_reason text;
+alter table appointments add column if not exists cancel_request_at timestamp with time zone;
+
 -- Basic RLS policies
 alter table profiles enable row level security;
 alter table inventory enable row level security;
@@ -337,6 +343,124 @@ begin
   $fn$;
   revoke all on function public.appointment_schedule(uuid, timestamptz, uuid) from public;
   grant execute on function public.appointment_schedule(uuid, timestamptz, uuid) to authenticated;
+end
+$do$;
+
+notify pgrst, 'reload schema';
+
+-- RPC: user cancels a requested appointment (SECURITY DEFINER)
+do $do$
+begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where p.proname='appointment_user_cancel_request' and n.nspname='public'
+  ) then
+    drop function public.appointment_user_cancel_request(uuid, text);
+  end if;
+  create function public.appointment_user_cancel_request(p_id uuid, p_reason text)
+  returns void
+  language plpgsql
+  security definer
+  set search_path = public, auth
+  as $fn$
+  declare v_actor uuid;
+          v_owner uuid;
+          v_status text;
+  begin
+    perform set_config('app.rpc','appointment_user_cancel_request',true);
+    v_actor := auth.uid();
+    select user_id, status into v_owner, v_status from public.appointments where id = p_id;
+    if v_owner is null then raise exception 'not found'; end if;
+    if v_actor <> v_owner then raise exception 'forbidden'; end if;
+    if v_status <> 'requested' then raise exception 'only requested appointments can be cancelled by user'; end if;
+    update public.appointments
+      set status = 'cancelled',
+          cancelled_at = timezone('utc'::text, now()),
+          cancelled_by = v_actor,
+          notes = coalesce(notes,'') || case when p_reason is not null and length(trim(p_reason))>0 then
+                   case when notes is null or length(notes)=0 then '' else E'\n' end || 'Cancelled by user: ' || p_reason
+                 else '' end
+      where id = p_id;
+  end;
+  $fn$;
+  revoke all on function public.appointment_user_cancel_request(uuid, text) from public;
+  grant execute on function public.appointment_user_cancel_request(uuid, text) to authenticated;
+end
+$do$;
+
+-- RPC: user requests cancellation for a scheduled appointment
+do $do$
+begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where p.proname='appointment_user_request_cancel_scheduled' and n.nspname='public'
+  ) then
+    drop function public.appointment_user_request_cancel_scheduled(uuid, text);
+  end if;
+  create function public.appointment_user_request_cancel_scheduled(p_id uuid, p_reason text)
+  returns void
+  language plpgsql
+  security definer
+  set search_path = public, auth
+  as $fn$
+  declare v_actor uuid;
+          v_owner uuid;
+          v_status text;
+  begin
+    perform set_config('app.rpc','appointment_user_request_cancel_scheduled',true);
+    v_actor := auth.uid();
+    select user_id, status into v_owner, v_status from public.appointments where id = p_id;
+    if v_owner is null then raise exception 'not found'; end if;
+    if v_actor <> v_owner then raise exception 'forbidden'; end if;
+    if v_status <> 'scheduled' then raise exception 'can request cancel only for scheduled'; end if;
+    update public.appointments
+      set cancel_request_reason = nullif(trim(p_reason),''),
+          cancel_request_at = timezone('utc'::text, now())
+      where id = p_id;
+  end;
+  $fn$;
+  revoke all on function public.appointment_user_request_cancel_scheduled(uuid, text) from public;
+  grant execute on function public.appointment_user_request_cancel_scheduled(uuid, text) to authenticated;
+end
+$do$;
+
+-- RPC: staff/admin cancel appointment (approve cancellation)
+do $do$
+begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where p.proname='appointment_cancel' and n.nspname='public'
+  ) then
+    drop function public.appointment_cancel(uuid, text, uuid);
+  end if;
+  create function public.appointment_cancel(p_id uuid, p_reason text, p_staff_id uuid)
+  returns void
+  language plpgsql
+  security definer
+  set search_path = public, auth
+  as $fn$
+  declare v_actor uuid;
+          v_role text;
+  begin
+    perform set_config('app.rpc','appointment_cancel',true);
+    v_actor := auth.uid();
+    if exists (select 1 from public.profiles where id=v_actor and role in ('staff','admin')) is not true then
+      raise exception 'forbidden';
+    end if;
+    update public.appointments
+      set status='cancelled',
+          cancelled_at = timezone('utc'::text, now()),
+          cancelled_by = p_staff_id,
+          cancel_request_reason = null,
+          cancel_request_at = null,
+          notes = coalesce(notes,'') || case when p_reason is not null and length(trim(p_reason))>0 then
+                   case when notes is null or length(notes)=0 then '' else E'\n' end || 'Cancelled by staff: ' || p_reason
+                 else '' end
+      where id = p_id;
+  end;
+  $fn$;
+  revoke all on function public.appointment_cancel(uuid, text, uuid) from public;
+  grant execute on function public.appointment_cancel(uuid, text, uuid) to authenticated;
 end
 $do$;
 

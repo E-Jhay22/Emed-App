@@ -218,18 +218,143 @@ class _AppointmentDetailPageState extends State<AppointmentDetailPage> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
-                  : (_shouldShowSchedule(role, isScheduled)
-                        ? ElevatedButton.icon(
-                            onPressed: _schedule,
-                            icon: const Icon(Icons.schedule),
-                            label: const Text('Schedule'),
-                          )
-                        : const SizedBox.shrink()),
+                  : Row(
+                      children: [
+                        if (_shouldShowSchedule(role, isScheduled))
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _schedule,
+                              icon: const Icon(Icons.schedule),
+                              label: const Text('Schedule'),
+                            ),
+                          ),
+                        if (_shouldShowSchedule(role, isScheduled))
+                          const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: Icon(
+                              isScheduled
+                                  ? Icons.cancel_schedule_send
+                                  : Icons.cancel,
+                            ),
+                            label: Text(
+                              isScheduled ? 'Request Cancel' : 'Cancel Request',
+                            ),
+                            onPressed: () =>
+                                _onCancelPressed(role, isScheduled),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _onCancelPressed(String role, bool isScheduled) async {
+    final reason = await _promptReason(
+      context,
+      title: isScheduled
+          ? 'Request Cancellation'
+          : 'Cancel Appointment Request',
+      hint: 'Please provide a reason',
+    );
+    if (reason == null || reason.isEmpty) return;
+    setState(() => _loading = true);
+    try {
+      if (!isScheduled) {
+        // User can cancel their requested appointment; staff can also cancel via staff endpoint
+        if (role == 'staff' || role == 'admin') {
+          final staff = SupabaseService.instance.currentUser?.id;
+          if (staff == null) throw Exception('Not authenticated');
+          await AppointmentService.instance.cancelByStaff(
+            appointmentId: _apt.id,
+            staffId: staff,
+            reason: reason,
+          );
+        } else {
+          await AppointmentService.instance.cancelRequestedByUser(
+            appointmentId: _apt.id,
+            reason: reason,
+          );
+        }
+      } else {
+        // Scheduled: user requests cancellation; staff/admin immediately cancel
+        if (role == 'staff' || role == 'admin') {
+          final staff = SupabaseService.instance.currentUser?.id;
+          if (staff == null) throw Exception('Not authenticated');
+          await AppointmentService.instance.cancelByStaff(
+            appointmentId: _apt.id,
+            staffId: staff,
+            reason: reason,
+          );
+        } else {
+          await AppointmentService.instance.requestCancelScheduledByUser(
+            appointmentId: _apt.id,
+            reason: reason,
+          );
+        }
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isScheduled ? 'Cancellation request sent' : 'Appointment cancelled',
+          ),
+        ),
+      );
+      // Optimistic UI update
+      setState(() {
+        if (role == 'staff' || role == 'admin') {
+          _apt = Appointment(
+            id: _apt.id,
+            userId: _apt.userId,
+            staffId: _apt.staffId,
+            requestedAt: _apt.requestedAt,
+            scheduledAt: _apt.scheduledAt,
+            status: 'cancelled',
+            notes: _apt.notes,
+            requestedByName: _apt.requestedByName,
+            scheduledByName: _apt.scheduledByName,
+            cancelledAt: DateTime.now().toUtc(),
+            cancelledBy: SupabaseService.instance.currentUser?.id,
+            cancelRequestReason: null,
+            cancelRequestAt: null,
+          );
+        } else {
+          _apt = Appointment(
+            id: _apt.id,
+            userId: _apt.userId,
+            staffId: _apt.staffId,
+            requestedAt: _apt.requestedAt,
+            scheduledAt: _apt.scheduledAt,
+            status: _apt.scheduledAt == null ? 'cancelled' : _apt.status,
+            notes: _apt.notes,
+            requestedByName: _apt.requestedByName,
+            scheduledByName: _apt.scheduledByName,
+            cancelledAt: _apt.scheduledAt == null
+                ? DateTime.now().toUtc()
+                : _apt.cancelledAt,
+            cancelledBy: _apt.scheduledAt == null
+                ? _apt.userId
+                : _apt.cancelledBy,
+            cancelRequestReason: _apt.scheduledAt != null ? reason : null,
+            cancelRequestAt: _apt.scheduledAt != null
+                ? DateTime.now().toUtc()
+                : null,
+          );
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 }
 
@@ -279,4 +404,35 @@ class _StatusPill extends StatelessWidget {
 bool _shouldShowSchedule(String role, bool isScheduled) {
   if (isScheduled) return false;
   return role == 'staff' || role == 'admin';
+}
+
+Future<String?> _promptReason(
+  BuildContext context, {
+  required String title,
+  required String hint,
+}) async {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) {
+      return AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: InputDecoration(hintText: hint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('Submit'),
+          ),
+        ],
+      );
+    },
+  );
 }

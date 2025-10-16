@@ -151,6 +151,44 @@ class AppointmentService {
     }
   }
 
+  // ==========================
+  // Cancellation operations
+  // ==========================
+  Future<void> cancelRequestedByUser({
+    required String appointmentId,
+    required String reason,
+  }) async {
+    await _client.rpc(
+      'appointment_user_cancel_request',
+      params: {'p_id': appointmentId, 'p_reason': reason},
+    );
+  }
+
+  Future<void> requestCancelScheduledByUser({
+    required String appointmentId,
+    required String reason,
+  }) async {
+    await _client.rpc(
+      'appointment_user_request_cancel_scheduled',
+      params: {'p_id': appointmentId, 'p_reason': reason},
+    );
+  }
+
+  Future<void> cancelByStaff({
+    required String appointmentId,
+    required String staffId,
+    required String reason,
+  }) async {
+    await _client.rpc(
+      'appointment_cancel',
+      params: {
+        'p_id': appointmentId,
+        'p_reason': reason,
+        'p_staff_id': staffId,
+      },
+    );
+  }
+
   Future<void> requestAppointment(Appointment a) async {
     // Check if user is verified before allowing appointment creation
     final currentUser = await AuthService.instance.getProfile();
