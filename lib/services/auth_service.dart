@@ -402,13 +402,30 @@ class AuthService {
     if (middleName != null) update['middle_name'] = middleName.trim();
     if (lastName != null) update['last_name'] = lastName.trim();
     if (address != null) update['address'] = address.trim();
-    if (birthday != null) update['birthday'] = birthday.toIso8601String();
+    if (birthday != null) {
+      // Store as ISO; DB trigger will rebuild full_name but we also set it below for immediate UX
+      update['birthday'] = birthday.toIso8601String();
+    }
     if (phone != null) {
       final normalized = normalizePhPhone(phone);
       if (normalized == null) {
         throw Exception('Invalid Philippine phone number');
       }
       update['phone'] = normalized;
+    }
+
+    // Proactively update full_name for instant UI feedback; DB trigger also maintains it
+    if (firstName != null || middleName != null || lastName != null) {
+      final f = (firstName ?? '').trim();
+      final m = (middleName ?? '').trim();
+      final l = (lastName ?? '').trim();
+      final middleInitial = m.isEmpty ? '' : '${m[0].toUpperCase()}.';
+      final composed = [
+        if (l.isNotEmpty) l,
+        if (f.isNotEmpty) f,
+        if (middleInitial.isNotEmpty) middleInitial,
+      ].join(l.isNotEmpty && f.isNotEmpty ? ', ' : ' ').trim();
+      if (composed.isNotEmpty) update['full_name'] = composed;
     }
 
     if (update.isEmpty) return;

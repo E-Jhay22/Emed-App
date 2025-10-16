@@ -22,7 +22,8 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage>
+    with WidgetsBindingObserver {
   final DateTime _selectedDate = DateTime.now();
 
   // data streams
@@ -34,6 +35,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // user id
     _userId = SupabaseService.instance.currentUser?.id;
     _announcementsStream = AnnouncementService.instance.streamAnnouncements();
@@ -41,6 +43,20 @@ class _DashboardPageState extends State<DashboardPage> {
         ? AppointmentService.instance.streamAppointmentsForUser(_userId!)
         : const Stream.empty();
     _inventoryStream = InventoryService.instance.streamInventory();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Trigger a rebuild to ensure latest inventory/streams
+      setState(() {});
+    }
   }
 
   @override
@@ -158,30 +174,39 @@ class _DashboardPageState extends State<DashboardPage> {
                                 .toList()
                               ..sort((a, b) => a.compareTo(b));
 
-                        return ListView(
-                          children: [
-                            _buildDateNavBar(today, isWide),
-                            const SizedBox(height: 16),
-                            _buildTodaySection(today, todayActivities),
-                            if (futureDaysWithItems.isNotEmpty) ...[
-                              const SizedBox(height: 24),
-                              for (final day in futureDaysWithItems)
-                                _buildDaySection(
-                                  day,
-                                  activitiesByDate[day] ?? const [],
-                                ),
-                            ],
-                            if (futureDaysWithItems.isEmpty) ...[
+                        return RefreshIndicator(
+                          onRefresh: () async {
+                            // On pull-to-refresh, rebuild to pick up latest streams
+                            setState(() {});
+                            await Future<void>.delayed(
+                              const Duration(milliseconds: 200),
+                            );
+                          },
+                          child: ListView(
+                            children: [
+                              _buildDateNavBar(today, isWide),
                               const SizedBox(height: 16),
-                              Center(
-                                child: Text(
-                                  'No more items to show',
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: Colors.grey),
+                              _buildTodaySection(today, todayActivities),
+                              if (futureDaysWithItems.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                for (final day in futureDaysWithItems)
+                                  _buildDaySection(
+                                    day,
+                                    activitiesByDate[day] ?? const [],
+                                  ),
+                              ],
+                              if (futureDaysWithItems.isEmpty) ...[
+                                const SizedBox(height: 16),
+                                Center(
+                                  child: Text(
+                                    'No more items to show',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: Colors.grey),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ],
-                          ],
+                          ),
                         );
                       },
                     );

@@ -31,40 +31,44 @@ class InventoryService {
   Stream<List<InventoryItem>> streamInventory({
     Duration pollInterval = const Duration(seconds: 5),
   }) async* {
-    // Try to use realtime subscription
-    try {
-      final controller = StreamController<List<InventoryItem>>();
-      // first load
+    // Realtime + periodic polling to avoid stale UI when realtime is flaky
+    final controller = StreamController<List<InventoryItem>>();
+    RealtimeChannel? channel;
+    Timer? timer;
+
+    Future<void> reload() async {
       final res = await _client.from('inventory').select();
-      final items = _rowsFrom(
-        res,
-      ).map((e) => InventoryItem.fromJson(e)).toList();
+      final items = _rowsFrom(res).map(InventoryItem.fromJson).toList();
       controller.add(items);
-
-      _client.channel('public:inventory').on(
-        RealtimeListenTypes.postgresChanges,
-        ChannelFilter(event: '*', schema: 'public', table: 'inventory'),
-        (payload, [ref]) async {
-          final res2 = await _client.from('inventory').select();
-          final items2 = _rowsFrom(
-            res2,
-          ).map((e) => InventoryItem.fromJson(e)).toList();
-          controller.add(items2);
-        },
-      ).subscribe();
-
-      yield* controller.stream;
-    } catch (e) {
-      // polling fallback
-      while (true) {
-        final res = await _client.from('inventory').select();
-        final list = _rowsFrom(
-          res,
-        ).map((e) => InventoryItem.fromJson(e)).toList();
-        yield list;
-        await Future.delayed(pollInterval);
-      }
     }
+
+    controller.onListen = () async {
+      // initial load
+      await reload();
+      try {
+        channel = _client.channel('public:inventory');
+        channel!.on(
+          RealtimeListenTypes.postgresChanges,
+          ChannelFilter(event: '*', schema: 'public', table: 'inventory'),
+          (payload, [ref]) async {
+            await reload();
+          },
+        );
+        channel!.subscribe();
+      } catch (_) {
+        // ignore channel setup errors; polling will cover
+      }
+      // periodic refresh as safety net
+      timer = Timer.periodic(pollInterval, (_) => reload());
+    };
+    controller.onCancel = () {
+      try {
+        channel?.unsubscribe();
+      } catch (_) {}
+      timer?.cancel();
+    };
+
+    yield* controller.stream;
   }
 
   Future<void> addItem(InventoryItem item) async {
