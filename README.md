@@ -38,6 +38,9 @@ Output: `build/app/outputs/flutter-apk/app-release.apk`
 
 ## Notes
 - If password reset email is used, the app shows a reset screen after opening the link.
-- For production signing, set up a keystore and `android/key.properties`.
 
-Made by Elmer Jhay T.
+Made by COZEN
+Zapata, Elmer Jhay 
+Pagcu, Carl Gaebriel
+Reyes, Justine Kevin
+Manusig, Charles Jansen
