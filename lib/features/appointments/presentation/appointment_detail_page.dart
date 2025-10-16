@@ -219,12 +219,12 @@ class _AppointmentDetailPageState extends State<AppointmentDetailPage> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : (_shouldShowSchedule(role, isScheduled)
-                      ? ElevatedButton.icon(
-                          onPressed: _schedule,
-                          icon: const Icon(Icons.schedule),
-                          label: const Text('Schedule'),
-                        )
-                      : const SizedBox.shrink()),
+                        ? ElevatedButton.icon(
+                            onPressed: _schedule,
+                            icon: const Icon(Icons.schedule),
+                            label: const Text('Schedule'),
+                          )
+                        : const SizedBox.shrink()),
             ),
           ],
         ),

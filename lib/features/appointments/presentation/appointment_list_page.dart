@@ -25,7 +25,9 @@ class _AppointmentListPageState extends State<AppointmentListPage> {
     super.initState();
     _userId = SupabaseService.instance.currentUser?.id;
     // default stream for users; staff/admin updated in didChangeDependencies
-    _stream = AppointmentService.instance.streamAppointmentsForUser(_userId ?? '');
+    _stream = AppointmentService.instance.streamAppointmentsForUser(
+      _userId ?? '',
+    );
   }
 
   @override
@@ -104,8 +106,8 @@ class _AppointmentListPageState extends State<AppointmentListPage> {
                     : '-';
                 final title = (_role == 'staff' || _role == 'admin')
                     ? (a.requestedByName?.isNotEmpty == true
-                        ? 'Appointment • ${a.requestedByName}'
-                        : 'Appointment')
+                          ? 'Appointment • ${a.requestedByName}'
+                          : 'Appointment')
                     : 'Appointment';
                 return InkWell(
                   borderRadius: BorderRadius.circular(12),

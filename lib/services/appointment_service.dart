@@ -13,7 +13,9 @@ class AppointmentService {
 
   final _client = SupabaseService.instance.client;
 
-  List<Appointment> _mapRowsToAppointments(Iterable<Map<String, dynamic>> rows) {
+  List<Appointment> _mapRowsToAppointments(
+    Iterable<Map<String, dynamic>> rows,
+  ) {
     return rows.map((e) {
       final map = Map<String, dynamic>.from(e);
       if (map['user'] is Map && (map['user'] as Map)['name'] != null) {
